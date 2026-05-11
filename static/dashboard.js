@@ -168,8 +168,12 @@ function renderTable(containerId, tests, labels, mode) {
   rowCharts[containerId] = [];
 
   if (!tests || tests.length === 0) {
-    container.innerHTML =
-      `<div class="empty-state">No tests in this category for the latest 15-minute block.</div>`;
+    const msg = (mode === "no-data")
+      ? "No tests with data-collection problems (all tests have rounds within the last hour)."
+      : (mode === "availability")
+        ? "No tests with errors in the last hour."
+        : "No tests in this category.";
+    container.innerHTML = `<div class="empty-state">${msg}</div>`;
     return;
   }
 
@@ -177,9 +181,17 @@ function renderTable(containerId, tests, labels, mode) {
     const m = t.meta || {};
     const cid = `${containerId}-row-${idx}`;
     const inErr = t.in_error_now;
-    const pill = inErr
-      ? `<span class="error-pill">In error</span>`
-      : `<span class="ok-pill">OK</span>`;
+    // ``no-data`` rows describe a data-collection problem (no rounds in
+    // the last hour). They get their own pill/right-column treatment.
+    const noData = mode === "no-data";
+    let pill;
+    if (noData) {
+      pill = `<span class="error-pill">No data &gt; 1h</span>`;
+    } else if (inErr) {
+      pill = `<span class="error-pill">Errors in last 1h</span>`;
+    } else {
+      pill = `<span class="ok-pill">OK</span>`;
+    }
     const lastVal = (mode === "availability")
       ? (t.availability && t.availability.length ? t.availability[t.availability.length - 1] : null)
       : (t.latest_avg ?? null);
@@ -188,6 +200,19 @@ function renderTable(containerId, tests, labels, mode) {
       : (lastVal == null ? "—" : `${lastVal.toFixed(2)} s`);
     const safeName = escapeHtml(m.testName || m.testId || "");
     const intervalText = formatInterval(m.interval);
+    let rightLabel, rightValue;
+    if (noData) {
+      rightLabel = "Last Data Age";
+      rightValue = `${escapeHtml(t.last_data_age || "—")} &nbsp; ${pill}`;
+    } else if (mode === "availability") {
+      rightLabel = "Total Errors in last hour";
+      const errCount = (typeof t.errors_last_hour === "number")
+        ? t.errors_last_hour : 0;
+      rightValue = `${errCount} &nbsp; ${pill}`;
+    } else {
+      rightLabel = "Latest Avg";
+      rightValue = `${valText} &nbsp; ${pill}`;
+    }
     return `
       <table class="test-table">
         <tr class="header-row">
@@ -210,10 +235,8 @@ function renderTable(containerId, tests, labels, mode) {
             ${escapeHtml(intervalText)}
           </td>
           <td style="width:22%">
-            <span class="label">${mode === "availability" ? "Time With Error" : "Latest Avg"}</span>
-            ${mode === "availability"
-              ? `${escapeHtml(t.time_with_error || "—")} &nbsp; ${pill}`
-              : `${valText} &nbsp; ${pill}`}
+            <span class="label">${rightLabel}</span>
+            ${rightValue}
           </td>
         </tr>
         <tr class="chart-row">
@@ -228,9 +251,10 @@ function renderTable(containerId, tests, labels, mode) {
     const cid = `${containerId}-row-${idx}`;
     const canvas = document.getElementById(cid);
     if (!canvas) return;
-    if (mode === "availability") {
+    if (mode === "availability" || mode === "no-data") {
       const series = (t.availability || []).map((v) => v == null ? null : v);
-      const chart = makeFilledLine(canvas, labels, series, COLORS.green,
+      const chart = makeFilledLine(canvas, labels, series,
+                                   mode === "no-data" ? COLORS.orange : COLORS.green,
                                    { yMin: 0, yMax: 100, pointRadius: 2 });
       rowCharts[containerId].push(chart);
     } else {
@@ -618,7 +642,9 @@ async function tick() {
       (Array.isArray(d.labels) && d.labels.length > 0) ||
       (d.totals && (d.totals.tx_tests || d.totals.pl_tests)) ||
       (Array.isArray(d.tx_outstanding) && d.tx_outstanding.length > 0) ||
-      (Array.isArray(d.pl_outstanding) && d.pl_outstanding.length > 0);
+      (Array.isArray(d.pl_outstanding) && d.pl_outstanding.length > 0) ||
+      (Array.isArray(d.tx_no_data) && d.tx_no_data.length > 0) ||
+      (Array.isArray(d.pl_no_data) && d.pl_no_data.length > 0);
 
     if (payload.ready || hasAnyData) {
       // Hide the loader as soon as we have something to show.
@@ -640,8 +666,10 @@ async function tick() {
       plErrEl.style.color = (plErr > 0) ? COLORS.red : COLORS.green;
 
       renderTable("tx-outstanding", d.tx_outstanding, d.labels, "availability");
+      renderTable("tx-no-data",     d.tx_no_data,     d.labels, "no-data");
       renderTable("tx-top5",        d.tx_top5,        d.labels, "time");
       renderTable("pl-outstanding", d.pl_outstanding, d.labels, "availability");
+      renderTable("pl-no-data",     d.pl_no_data,     d.labels, "no-data");
       renderTable("pl-top5",        d.pl_top5,        d.labels, "time");
 
       // Ignored tests card + bottom table

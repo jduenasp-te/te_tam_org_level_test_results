@@ -290,6 +290,19 @@ def aggregate(cache_dir: str, blocks: int = 32,
         per_block_time_sum: Dict[str, float] = defaultdict(float)
         per_block_time_n: Dict[str, int] = defaultdict(int)
         latest_error_dt: Optional[dt.datetime] = None
+        # Newest startTime *for this specific test* — used to decide whether
+        # the test has a data-collection problem (no rounds in > 1 hour).
+        test_latest_dt: Optional[dt.datetime] = None
+        # "Last hour" window — the request defines outstanding as having at
+        # least one error in any block within the previous 60 minutes from
+        # "now" in the local time zone.
+        now_local = dt.datetime.now(tz=LOCAL_TZ)
+        one_hour_ago = now_local - dt.timedelta(hours=1)
+        had_error_last_hour = False
+        # Total errored result rows in the last hour for this test (across
+        # every agent/round). Surfaced on the dashboard as
+        # "Total Errors in last hour".
+        errors_last_hour = 0
 
         for r in data.get("results", []) or []:
             local_dt = _parse_start(r.get("startTime"))
@@ -297,6 +310,8 @@ def aggregate(cache_dir: str, blocks: int = 32,
                 continue
             if (newest_data_dt is None) or (local_dt > newest_data_dt):
                 newest_data_dt = local_dt
+            if (test_latest_dt is None) or (local_dt > test_latest_dt):
+                test_latest_dt = local_dt
             label = _block_label(local_dt, block_minutes=block_minutes)
             per_block_total[label] += 1
 
@@ -315,6 +330,9 @@ def aggregate(cache_dir: str, blocks: int = 32,
                         tx_err_tests[label].add(test_id)
                     if (latest_error_dt is None) or (local_dt > latest_error_dt):
                         latest_error_dt = local_dt
+                    if local_dt >= one_hour_ago:
+                        had_error_last_hour = True
+                        errors_last_hour += 1
 
             elif ttype == "page-load":
                 plt = r.get("pageLoadTime")
@@ -331,6 +349,9 @@ def aggregate(cache_dir: str, blocks: int = 32,
                         pl_missing_tests[label].add(test_id)
                     if (latest_error_dt is None) or (local_dt > latest_error_dt):
                         latest_error_dt = local_dt
+                    if local_dt >= one_hour_ago:
+                        had_error_last_hour = True
+                        errors_last_hour += 1
 
         # Build per-test series for the table charts.
         availability = []
@@ -347,8 +368,8 @@ def aggregate(cache_dir: str, blocks: int = 32,
 
         # If the latest block has no data (test results older than the
         # block size, e.g. >15 minutes), fall back to the most recent block
-        # that DID receive results — so "outstanding" and "Top 5" tables
-        # still reflect the last known state instead of going blank.
+        # that DID receive results — kept around so legacy callers that
+        # used ``latest_avg`` for "current value" still work.
         latest_idx = None
         for i in range(len(block_labels) - 1, -1, -1):
             if per_block_total.get(block_labels[i], 0) > 0:
@@ -356,22 +377,44 @@ def aggregate(cache_dir: str, blocks: int = 32,
                 break
         if latest_idx is None:
             latest_idx = len(block_labels) - 1
-        last_lbl = block_labels[latest_idx]
-        in_error_now = per_block_err_count.get(last_lbl, 0) > 0
         latest_avg = avg_time[latest_idx]
+
+        # ``in_error_now`` — new semantics (per change-request):
+        # the test had at least one error in any block within the last hour.
+        in_error_now = had_error_last_hour
+
+        # ``data_collection_problem`` — the cache has *no* round newer than
+        # one hour ago. Tests with no data at all also qualify.
+        if test_latest_dt is None:
+            data_collection_problem = True
+            last_data_age_seconds: Optional[float] = None
+        else:
+            age = (now_local - test_latest_dt).total_seconds()
+            last_data_age_seconds = age
+            data_collection_problem = age > 3600
 
         time_with_error = "—"
         if latest_error_dt is not None:
-            now = dt.datetime.now(tz=LOCAL_TZ)
-            time_with_error = _format_age((now - latest_error_dt).total_seconds())
+            time_with_error = _format_age(
+                (now_local - latest_error_dt).total_seconds()
+            )
+
+        last_data_age_human = (
+            _format_age(last_data_age_seconds)
+            if last_data_age_seconds is not None else "—"
+        )
 
         entry = {
             "meta": meta,
             "availability": availability,
             "avg_time": avg_time,
             "in_error_now": in_error_now,
+            "data_collection_problem": data_collection_problem,
+            "last_data_age_seconds": last_data_age_seconds,
+            "last_data_age": last_data_age_human,
             "latest_avg": latest_avg,
             "time_with_error": time_with_error,
+            "errors_last_hour": errors_last_hour,
         }
         if ttype == "web-transactions":
             tx_series[test_id] = entry
@@ -391,21 +434,36 @@ def aggregate(cache_dir: str, blocks: int = 32,
                for lbl in block_labels]
 
     # Tables ---------------------------------------------------------------
+    # A test with a data-collection problem (no rounds in > 1h) is surfaced
+    # in its own table rather than the "in error" one — its lack of recent
+    # results would otherwise produce a misleading "in error" verdict.
+    tx_no_data = sorted(
+        [v for v in tx_series.values() if v["data_collection_problem"]],
+        key=lambda v: v["meta"]["testName"].lower(),
+    )
     tx_outstanding = sorted(
-        [v for v in tx_series.values() if v["in_error_now"]],
+        [v for v in tx_series.values()
+         if v["in_error_now"] and not v["data_collection_problem"]],
         key=lambda v: v["meta"]["testName"].lower(),
     )
     tx_top5 = sorted(
-        [v for v in tx_series.values() if v["latest_avg"] is not None],
+        [v for v in tx_series.values()
+         if v["latest_avg"] is not None and not v["data_collection_problem"]],
         key=lambda v: v["latest_avg"], reverse=True,
     )[:5]
 
+    pl_no_data = sorted(
+        [v for v in pl_series.values() if v["data_collection_problem"]],
+        key=lambda v: v["meta"]["testName"].lower(),
+    )
     pl_outstanding = sorted(
-        [v for v in pl_series.values() if v["in_error_now"]],
+        [v for v in pl_series.values()
+         if v["in_error_now"] and not v["data_collection_problem"]],
         key=lambda v: v["meta"]["testName"].lower(),
     )
     pl_top5 = sorted(
-        [v for v in pl_series.values() if v["latest_avg"] is not None],
+        [v for v in pl_series.values()
+         if v["latest_avg"] is not None and not v["data_collection_problem"]],
         key=lambda v: v["latest_avg"], reverse=True,
     )[:5]
 
@@ -432,13 +490,17 @@ def aggregate(cache_dir: str, blocks: int = 32,
         "widget4": widget4,
         "tx_outstanding": tx_outstanding,
         "tx_top5": tx_top5,
+        "tx_no_data": tx_no_data,
         "pl_outstanding": pl_outstanding,
         "pl_top5": pl_top5,
+        "pl_no_data": pl_no_data,
         "totals": {
             "tx_tests": len(tx_series),
             "pl_tests": len(pl_series),
             "tx_in_error": len(tx_outstanding),
             "pl_in_error": len(pl_outstanding),
+            "tx_no_data": len(tx_no_data),
+            "pl_no_data": len(pl_no_data),
             "ignored": len(ignored_list),
         },
         "ignored": sorted(ignored_list, key=lambda x: (x.get("testName") or "").lower()),

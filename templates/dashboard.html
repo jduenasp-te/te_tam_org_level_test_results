@@ -42,20 +42,20 @@
     <div class="hero-right">
       <h3>Executive Snapshot</h3>
       <div class="hero-row"><span>Transaction tests tracked</span><strong id="exec-tx-total">—</strong></div>
-      <div class="hero-row"><span>Transaction tests in error</span><strong id="exec-tx-err">—</strong></div>
+      <div class="hero-row"><span>Transaction tests in error (during last hour)</span><strong id="exec-tx-err">—</strong></div>
       <div class="hero-row"><span>Page-Load tests tracked</span><strong id="exec-pl-total">—</strong></div>
-      <div class="hero-row"><span>Page-Load tests in error</span><strong id="exec-pl-err">—</strong></div>
+      <div class="hero-row"><span>Page-Load tests in error (during last hour)</span><strong id="exec-pl-err">—</strong></div>
     </div>
   </header>
 
   <div class="tam-kpis">
     <div class="kpi">
-      <div class="kpi-title">TX Errors (now)</div>
+      <div class="kpi-title">TX Errors (last hour)</div>
       <div class="kpi-value" id="kpi-tx-err">—</div>
       <div class="kpi-sub">Latest 15-min block</div>
     </div>
     <div class="kpi">
-      <div class="kpi-title">TX Avg Time (now)</div>
+      <div class="kpi-title">TX Avg Time (last hour)</div>
       <div class="kpi-value" id="kpi-tx-time">—</div>
       <div class="kpi-sub">seconds</div>
     </div>
@@ -135,8 +135,13 @@
     </div>
 
     <div class="card">
-      <h2>Outstanding Transaction Tests — Errors</h2>
+      <h2>Outstanding Transaction Tests — Errors in the last hour</h2>
       <div id="tx-outstanding"></div>
+    </div>
+
+    <div class="card">
+      <h2>Transaction Tests — No data collected in the last hour</h2>
+      <div id="tx-no-data"></div>
     </div>
 
     <div class="card">
@@ -160,8 +165,13 @@
     </div>
 
     <div class="card">
-      <h2>Outstanding Page-Load Tests — Missing pageLoadTime</h2>
+      <h2>Outstanding Page-Load Tests — Errors in the last hour</h2>
       <div id="pl-outstanding"></div>
+    </div>
+
+    <div class="card">
+      <h2>Page-Load Tests — No data collected in the last hour</h2>
+      <div id="pl-no-data"></div>
     </div>
 
     <div class="card">
