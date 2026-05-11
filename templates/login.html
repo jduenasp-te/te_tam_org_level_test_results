@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>ThousandEyes Bearer Token</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="{{ static_v('styles.css') }}">
+</head>
+<body>
+<div class="auth-shell">
+  <form method="post" class="auth-card" autocomplete="off">
+    <h1>ThousandEyes Bearer Token</h1>
+    <p class="subtitle">Sign in with your ThousandEyes API v7 Bearer token to launch the
+      Page-Load &amp; Transaction tests errors monitor.</p>
+
+    {% if error %}<div class="alert">{{ error }}</div>{% endif %}
+
+    <div class="form-row">
+      <label for="token">API Bearer token</label>
+      <input id="token" name="token" type="password" required
+             placeholder="Paste your token here" autofocus>
+    </div>
+    <button type="submit" class="btn btn-primary" style="width:100%;">Sign in</button>
+  </form>
+</div>
+</body>
+</html>

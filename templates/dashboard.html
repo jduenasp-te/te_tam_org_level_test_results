@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>TAM Monitor — Page-Load &amp; Transaction tests</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="{{ static_v('styles.css') }}">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+<div class="app-container">
+
+  <div id="server-down-banner" class="server-down-banner" hidden>
+    <strong>⚠ The monitor backend is not reachable.</strong>
+    The data shown below may be stale. Restart the script with
+    <code>python ./app.py</code> and
+    <a href="{{ url_for('login') }}">re-enter your tokens</a>.
+  </div>
+
+  <div id="stale-data-banner" class="stale-data-banner" hidden>
+    <strong>⏳ Showing cached data.</strong>
+    The newest test result is <span id="stale-data-age">older than 15 minutes</span>.
+    <span id="stale-data-suffix">The script is currently gathering the latest test results.</span>
+  </div>
+
+  <div class="user-bar">
+    Signed in as <span class="user-name">{{ user_name or 'TAM' }}</span>
+    &nbsp;·&nbsp; <a href="{{ url_for('logout') }}">Logout</a>
+  </div>
+
+  <header class="tam-hero">
+    <div>
+      <span class="badge">Cisco ThousandEyes • Technical Account Manager</span>
+      <h1>Organization: <strong id="meta-org" data-orgkey="{{ active_orgKey }}">{{ active_org_name or '—' }}</strong></h1>
+      <div class="subtitle">Organization level - Test Monitoring (Tx & Page-Load)</div>
+      <div class="period" id="period">Initializing…</div>
+      <div class="meta">
+        Account Groups:
+        <strong id="meta-aid">{{ account_groups|length }}</strong>
+      </div>
+    </div>
+    <div class="hero-right">
+      <h3>Executive Snapshot</h3>
+      <div class="hero-row"><span>Transaction tests tracked</span><strong id="exec-tx-total">—</strong></div>
+      <div class="hero-row"><span>Transaction tests in error</span><strong id="exec-tx-err">—</strong></div>
+      <div class="hero-row"><span>Page-Load tests tracked</span><strong id="exec-pl-total">—</strong></div>
+      <div class="hero-row"><span>Page-Load tests in error</span><strong id="exec-pl-err">—</strong></div>
+    </div>
+  </header>
+
+  <div class="tam-kpis">
+    <div class="kpi">
+      <div class="kpi-title">TX Errors (now)</div>
+      <div class="kpi-value" id="kpi-tx-err">—</div>
+      <div class="kpi-sub">Latest 15-min block</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-title">TX Avg Time (now)</div>
+      <div class="kpi-value" id="kpi-tx-time">—</div>
+      <div class="kpi-sub">seconds</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-title">PL Missing pageLoadTime</div>
+      <div class="kpi-value" id="kpi-pl-err">—</div>
+      <div class="kpi-sub">Latest 15-min block</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-title">PL Avg Time (now)</div>
+      <div class="kpi-value" id="kpi-pl-time">—</div>
+      <div class="kpi-sub">seconds</div>
+    </div>
+    <div class="kpi kpi-ignored">
+      <div class="kpi-title">Ignored Tests</div>
+      <a class="kpi-link" href="#ignored-tests">
+        <div class="kpi-value kpi-value-ignored" id="ignored-count">0</div>
+      </a>
+      <div class="kpi-sub">excluded from every metric</div>
+    </div>
+  </div>
+
+  <!-- Interval setting -->
+  <div class="card">
+    <div class="interval-bar">
+      <button id="switch-org" class="btn btn-disabled" disabled>Switch to Organization:</button>
+      <select id="switch-org-select" data-active="{{ active_orgKey }}">
+        {% for org in selected_orgs %}
+          <option value="{{ org.orgKey }}"
+            {% if org.orgKey == active_orgKey %}selected{% endif %}>
+            {{ org.organizationName }}{% if org.orgId %} ({{ org.orgId }}){% endif %}
+          </option>
+        {% endfor %}
+      </select>
+      <span class="vsep"></span>
+      <strong>Interval:</strong>
+      <select id="interval-select">
+        {% for m in intervals %}
+          <option value="{{ m }}" {% if m == interval %}selected{% endif %}>{{ m }} minutes</option>
+        {% endfor %}
+      </select>
+      <button id="change-interval" class="btn btn-disabled" disabled>Change Interval</button>
+      <span class="vsep"></span>
+      <strong>Range:</strong>
+      <select id="range-select">
+        {% for r in ranges %}
+          <option value="{{ r.hours }}" {% if r.hours == range_hours %}selected{% endif %}>Last {{ r.label }}</option>
+        {% endfor %}
+      </select>
+      <button id="change-range" class="btn btn-disabled" disabled>Change Range</button>
+      <span id="loop-duration" class="loop-duration">Last loop: —</span>
+      <span id="status" class="status-pill">Initializing…</span>
+    </div>
+  </div>
+
+  <h2 class="section-title">Page-Load and Transaction tests errors monitor</h2>
+
+  <div id="loader" class="card loader">
+    <span class="spinner"></span> Getting data…
+  </div>
+
+  <div id="content" style="display:none;">
+
+    <!-- ===== Transaction Tests ===== -->
+    <h2 class="section-title">Transaction Tests</h2>
+    <div class="widget-grid">
+      <div class="widget">
+        <h3>Widget 1 · Transaction tests with errors</h3>
+        <div class="value-now" id="w1-now">—</div>
+        <canvas id="w1"></canvas>
+      </div>
+      <div class="widget">
+        <h3>Widget 2 · Transaction time (15-min avg, s)</h3>
+        <div class="value-now" id="w2-now">—</div>
+        <canvas id="w2"></canvas>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Outstanding Transaction Tests — Errors</h2>
+      <div id="tx-outstanding"></div>
+    </div>
+
+    <div class="card">
+      <h2>Top 5 Transaction Tests — Highest transactionTime</h2>
+      <div id="tx-top5"></div>
+    </div>
+
+    <!-- ===== Page-Load Tests ===== -->
+    <h2 class="section-title">Page-Load Tests</h2>
+    <div class="widget-grid">
+      <div class="widget">
+        <h3>Widget 3 · Page-Load completion problems</h3>
+        <div class="value-now" id="w3-now">—</div>
+        <canvas id="w3"></canvas>
+      </div>
+      <div class="widget">
+        <h3>Widget 4 · Page-load time (15-min avg, s)</h3>
+        <div class="value-now" id="w4-now">—</div>
+        <canvas id="w4"></canvas>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Outstanding Page-Load Tests — Missing pageLoadTime</h2>
+      <div id="pl-outstanding"></div>
+    </div>
+
+    <div class="card">
+      <h2>Top 5 Page-Load Tests — Highest pageLoadTime</h2>
+      <div id="pl-top5"></div>
+    </div>
+
+    <!-- ===== Ignored Tests ===== -->
+    <h2 class="section-title" id="ignored-tests">Ignored Tests</h2>
+    <div class="card">
+      <h2>Tests excluded from all metrics</h2>
+      <div class="ignored-toolbar">
+        <button id="reinclude-btn" class="btn btn-disabled" disabled>Re-Include</button>
+        <span class="ignored-hint">Select rows to re-include them in the metrics.</span>
+      </div>
+      <div id="ignored-list"></div>
+    </div>
+
+  </div>
+</div>
+
+<script src="{{ static_v('dashboard.js') }}"></script>
+</body>
+</html>
