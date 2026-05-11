@@ -274,6 +274,7 @@ def aggregate(cache_dir: str, blocks: int = 32,
             "testName": meta.get("testName") or f"Test {test_id}",
             "accountGroupName": meta.get("accountGroupName") or meta.get("aid", ""),
             "type": ttype,
+            "interval": meta.get("interval"),
         }
 
         if test_id in ignored_set:

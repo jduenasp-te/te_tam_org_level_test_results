@@ -129,8 +129,16 @@ class ThousandEyesClient:
     @require_token
     @retry(max_attempts=3, backoff=1.0)
     def _get(self, path: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        url = f"{self.BASE_URL}{path}"
-        resp = self.session.get(url, params=params or {}, timeout=self.timeout)
+        # ``path`` may be either a relative path ("/foo") or an absolute URL
+        # returned by a HAL ``_links.next.href``. Both are supported so that
+        # paginated endpoints can be walked transparently.
+        if path.startswith("http://") or path.startswith("https://"):
+            url = path
+            request_params = params or {}
+        else:
+            url = f"{self.BASE_URL}{path}"
+            request_params = params or {}
+        resp = self.session.get(url, params=request_params, timeout=self.timeout)
         # Surface 401/403 as auth errors clearly.
         if resp.status_code in (401, 403):
             raise PermissionError(f"Auth failed for {path} (HTTP {resp.status_code})")
@@ -140,6 +148,51 @@ class ThousandEyesClient:
             return resp.json()
         except ValueError:
             return {}
+
+    def _get_paginated_results(self, path: str, params: Dict[str, Any],
+                               max_pages: int = 50) -> Dict[str, Any]:
+        """Fetch a paginated ``/test-results/...`` endpoint and concatenate
+        every page's ``results`` array into the first payload.
+
+        ThousandEyes returns results in chronological order within the
+        requested ``window``. The first page therefore covers the *oldest*
+        slice of the window — without following ``_links.next`` we never
+        see anything newer than what fits in one page, which manifests as
+        a growing gap between the cache's newest round and "now".
+
+        ``max_pages`` is a safety cap so a pathological response cannot
+        loop forever; 50 pages is enough for several days of high-cadence
+        tests with many agents.
+        """
+        first = self._get(path, params=params)
+        combined_results = list(first.get("results") or [])
+        next_link = (((first.get("_links") or {}).get("next") or {}).get("href"))
+        pages = 1
+        seen_next: set = set()
+        while next_link and pages < max_pages:
+            if next_link in seen_next:
+                logger.warning("Pagination loop detected for %s; stopping.", path)
+                break
+            seen_next.add(next_link)
+            # ``next.href`` is an absolute URL already carrying every query
+            # parameter (including ``aid`` and the cursor). Pass it through
+            # ``_get`` with no extra params.
+            page = self._get(next_link, params=None)
+            page_results = page.get("results") or []
+            if not page_results:
+                break
+            combined_results.extend(page_results)
+            next_link = (((page.get("_links") or {}).get("next") or {}).get("href"))
+            pages += 1
+        if pages > 1:
+            logger.debug("Fetched %d pages (%d rows) from %s",
+                         pages, len(combined_results), path)
+        first["results"] = combined_results
+        # Drop the now-stale pagination links so callers don't try to walk
+        # them again later.
+        if "_links" in first and isinstance(first["_links"], dict):
+            first["_links"].pop("next", None)
+        return first
 
     # -- public endpoints ------------------------------------------------
     def validate_token(self) -> bool:
@@ -175,11 +228,15 @@ class ThousandEyesClient:
         params: Dict[str, Any] = {"window": window}
         if aid:
             params["aid"] = aid
-        return self._get(f"/test-results/{test_id}/page-load", params=params)
+        return self._get_paginated_results(
+            f"/test-results/{test_id}/page-load", params=params,
+        )
 
     def web_transaction_results(self, test_id: str, aid: Optional[str] = None,
                                 window: str = "1d") -> Dict[str, Any]:
         params: Dict[str, Any] = {"window": window}
         if aid:
             params["aid"] = aid
-        return self._get(f"/test-results/{test_id}/web-transactions", params=params)
+        return self._get_paginated_results(
+            f"/test-results/{test_id}/web-transactions", params=params,
+        )

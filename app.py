@@ -544,6 +544,13 @@ class MonitorScheduler:
                 logger.warning("Result fetch failed for %s: %s", test_id, exc)
                 continue
 
+            # ``interval`` (in seconds — the configured cadence between
+            # rounds) is the same value on both the test-list response and
+            # the ``test`` block returned with the results. We prefer the
+            # results-side copy because that's the one the user asked for,
+            # and fall back to the test-list value if absent.
+            payload_test = (payload or {}).get("test") or {}
+            interval = payload_test.get("interval") or test.get("interval")
             test_meta = {
                 "testId": test_id,
                 "testName": test.get("testName") or f"Test {test_id}",
@@ -551,6 +558,7 @@ class MonitorScheduler:
                 "accountGroupName": ag_name,
                 "orgId": org_id,
                 "organizationName": ag.get("organizationName", ""),
+                "interval": interval,
             }
             merge_results_file(cache_path, payload, test_meta, kind)
 

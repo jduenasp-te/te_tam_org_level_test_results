@@ -88,6 +88,20 @@ function testLink(testId) {
   return `https://app.thousandeyes.com/network-app-synthetics/views/?testId=${encodeURIComponent(testId)}`;
 }
 
+// Format the TE test ``interval`` (seconds) as a compact human label, e.g.
+// 60 -> "1 min", 120 -> "2 min", 300 -> "5 min", 3600 -> "1 h".
+function formatInterval(seconds) {
+  const n = Number(seconds);
+  if (!Number.isFinite(n) || n <= 0) return "—";
+  if (n < 60) return `${n}s`;
+  if (n % 3600 === 0) {
+    const h = n / 3600;
+    return `${h} h`;
+  }
+  const m = Math.round(n / 60);
+  return `${m} min`;
+}
+
 // ---------------------------------------------------------------------------
 // Org-level widgets
 // ---------------------------------------------------------------------------
@@ -173,6 +187,7 @@ function renderTable(containerId, tests, labels, mode) {
       ? (lastVal == null ? "—" : `${lastVal}% avail`)
       : (lastVal == null ? "—" : `${lastVal.toFixed(2)} s`);
     const safeName = escapeHtml(m.testName || m.testId || "");
+    const intervalText = formatInterval(m.interval);
     return `
       <table class="test-table">
         <tr class="header-row">
@@ -182,15 +197,19 @@ function renderTable(containerId, tests, labels, mode) {
                     data-test-name="${safeName}"
                     title="Ignore this test from all metrics">Ignore</button>
           </td>
-          <td style="width:25%">
+          <td style="width:22%">
             <span class="label">Account Group</span>
             ${escapeHtml(m.accountGroupName || "—")}
           </td>
-          <td style="width:50%">
+          <td style="width:42%">
             <span class="label">Test Name</span>
             <a href="${testLink(m.testId)}" target="_blank" rel="noopener">${safeName}</a>
           </td>
-          <td style="width:25%">
+          <td style="width:14%">
+            <span class="label">Test Interval</span>
+            ${escapeHtml(intervalText)}
+          </td>
+          <td style="width:22%">
             <span class="label">${mode === "availability" ? "Time With Error" : "Latest Avg"}</span>
             ${mode === "availability"
               ? `${escapeHtml(t.time_with_error || "—")} &nbsp; ${pill}`
@@ -198,7 +217,7 @@ function renderTable(containerId, tests, labels, mode) {
           </td>
         </tr>
         <tr class="chart-row">
-          <td colspan="3"><canvas id="${cid}"></canvas></td>
+          <td colspan="4"><canvas id="${cid}"></canvas></td>
         </tr>
       </table>`;
   }).join("");
