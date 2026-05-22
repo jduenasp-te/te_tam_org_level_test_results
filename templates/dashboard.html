@@ -42,9 +42,9 @@
     <div class="hero-right">
       <h3>Executive Snapshot</h3>
       <div class="hero-row"><span>Transaction tests tracked</span><strong id="exec-tx-total">—</strong></div>
-      <div class="hero-row"><span>Transaction tests in error (during last hour)</span><strong id="exec-tx-err">—</strong></div>
+      <div class="hero-row"><span>Transaction tests in error (during last day)</span><strong id="exec-tx-err">—</strong></div>
       <div class="hero-row"><span>Page-Load tests tracked</span><strong id="exec-pl-total">—</strong></div>
-      <div class="hero-row"><span>Page-Load tests in error (during last hour)</span><strong id="exec-pl-err">—</strong></div>
+      <div class="hero-row"><span>Page-Load tests in error (during last day)</span><strong id="exec-pl-err">—</strong></div>
     </div>
   </header>
 
@@ -135,17 +135,26 @@
     </div>
 
     <div class="card">
-      <h2>Outstanding Transaction Tests — Errors in the last hour</h2>
+      <div class="card-title-row">
+        <h2>Outstanding Transaction Tests — Errors in the last day</h2>
+        <button type="button" class="btn btn-export" data-export-target="tx-outstanding">Export to Excel</button>
+      </div>
       <div id="tx-outstanding"></div>
     </div>
 
     <div class="card">
-      <h2>Transaction Tests — No data collected in the last hour</h2>
+      <div class="card-title-row">
+        <h2>Transaction Tests — No data collected in the last hour</h2>
+        <button type="button" class="btn btn-export" data-export-target="tx-no-data">Export to Excel</button>
+      </div>
       <div id="tx-no-data"></div>
     </div>
 
     <div class="card">
-      <h2>Top 5 Transaction Tests — Highest transactionTime</h2>
+      <div class="card-title-row">
+        <h2>Top 5 Transaction Tests — Highest transactionTime</h2>
+        <button type="button" class="btn btn-export" data-export-target="tx-top5">Export to Excel</button>
+      </div>
       <div id="tx-top5"></div>
     </div>
 
@@ -165,17 +174,26 @@
     </div>
 
     <div class="card">
-      <h2>Outstanding Page-Load Tests — Errors in the last hour</h2>
+      <div class="card-title-row">
+        <h2>Outstanding Page-Load Tests — Errors in the last day</h2>
+        <button type="button" class="btn btn-export" data-export-target="pl-outstanding">Export to Excel</button>
+      </div>
       <div id="pl-outstanding"></div>
     </div>
 
     <div class="card">
-      <h2>Page-Load Tests — No data collected in the last hour</h2>
+      <div class="card-title-row">
+        <h2>Page-Load Tests — No data collected in the last hour</h2>
+        <button type="button" class="btn btn-export" data-export-target="pl-no-data">Export to Excel</button>
+      </div>
       <div id="pl-no-data"></div>
     </div>
 
     <div class="card">
-      <h2>Top 5 Page-Load Tests — Highest pageLoadTime</h2>
+      <div class="card-title-row">
+        <h2>Top 5 Page-Load Tests — Highest pageLoadTime</h2>
+        <button type="button" class="btn btn-export" data-export-target="pl-top5">Export to Excel</button>
+      </div>
       <div id="pl-top5"></div>
     </div>
 

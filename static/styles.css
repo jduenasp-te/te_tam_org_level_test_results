@@ -319,6 +319,37 @@ a:hover { text-decoration: underline; }
 }
 .card h3 { margin: 0 0 8px; font-size: 14px; font-weight: 700; color: var(--white); }
 
+/* Title row inside a card: heading on the left, action button (Export) on the right. */
+.card-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 12px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 8px;
+}
+.card-title-row h2 {
+  margin: 0;
+  border-bottom: none;
+  padding-bottom: 0;
+  flex: 1 1 auto;
+}
+.btn-export {
+  flex: 0 0 auto;
+  background: var(--cyan);
+  color: #07182D;
+  border: 1px solid var(--cyan);
+  font-weight: 700;
+  padding: 6px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.btn-export:hover { filter: brightness(1.08); }
+.btn-export:active { transform: translateY(1px); }
+
 .section-title {
   margin: 26px 0 10px;
   font-size: 18px;
@@ -464,6 +495,11 @@ a:hover { text-decoration: underline; }
   font-weight: 700; font-size: 12px;
   border: 1px solid rgba(69,153,31,0.45);
 }
+
+/* Test-health cell color coding */
+.health-ok   { color: #B6F09A; font-weight: 700; }
+.health-warn { color: #FFC97A; font-weight: 700; }
+.health-bad  { color: #FFB1B6; font-weight: 700; }
 
 /* ---------- Token loader (select-org page) ---------- */
 .auth-card--wide { max-width: 720px; }

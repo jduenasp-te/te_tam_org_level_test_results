@@ -653,9 +653,68 @@ def _ensure_primary_pool() -> Optional[str]:
 # ---------------------------------------------------------------------------
 # Flask app
 # ---------------------------------------------------------------------------
+def _load_or_create_secret() -> str:
+    """Return a stable Flask session secret.
+
+    Priority:
+      1. ``FLASK_SECRET`` env var (lets you override in deployments).
+      2. ``.flask_secret`` file persisted next to ``app.py``.
+      3. Generate a new one and persist it.
+
+    Persisting matters because Flask's signed-cookie sessions are signed
+    with this key. If the key rotated on every restart, every existing
+    dashboard tab would fail the next ``/api/dashboard`` poll with HTTP
+    401 and the JS would bounce the user back to ``/login`` — which
+    looks exactly like "the script logged me out after a cycle" when the
+    process happens to restart in the background.
+    """
+    env_secret = os.environ.get("FLASK_SECRET")
+    if env_secret:
+        return env_secret
+    secret_path = os.path.join(ROOT_DIR, ".flask_secret")
+    try:
+        with open(secret_path, "r", encoding="utf-8") as fh:
+            existing = fh.read().strip()
+        if existing:
+            return existing
+    except OSError:
+        pass
+    new_secret = secrets.token_hex(32)
+    try:
+        with open(secret_path, "w", encoding="utf-8") as fh:
+            fh.write(new_secret)
+        try:
+            os.chmod(secret_path, 0o600)
+        except OSError:
+            pass
+    except OSError as exc:  # pragma: no cover — fall back to in-memory
+        logger.warning("Could not persist Flask secret to %s: %s — "
+                       "sessions will not survive a restart.",
+                       secret_path, exc)
+    return new_secret
+
+
 def create_app() -> Flask:
     app = Flask(__name__)
-    app.secret_key = os.environ.get("FLASK_SECRET", secrets.token_hex(16))
+    app.secret_key = _load_or_create_secret()
+    # Session cookie hardening — make sessions long-lived (30 days) so a
+    # browser tab kept open across restarts/network blips stays logged
+    # in instead of getting bounced to /login between collection cycles.
+    app.permanent_session_lifetime = dt.timedelta(days=30)
+    app.config.update(
+        SESSION_COOKIE_HTTPONLY=True,
+        SESSION_COOKIE_SAMESITE="Lax",
+        SESSION_REFRESH_EACH_REQUEST=True,
+    )
+
+    @app.before_request
+    def _make_session_permanent():
+        # Mark every request's session as permanent so Flask emits a
+        # ``Max-Age``/``Expires`` cookie rather than a browser-session
+        # cookie. Without this, some browsers (and some restart paths)
+        # silently drop the cookie, which manifests as the user being
+        # "logged out" right after a data-collection loop.
+        session.permanent = True
 
     # Cache-bust static assets (dashboard.js / styles.css) using their file
     # mtime so the browser always picks up the latest version after a code

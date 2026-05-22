@@ -297,12 +297,12 @@ def aggregate(cache_dir: str, blocks: int = 32,
         # least one error in any block within the previous 60 minutes from
         # "now" in the local time zone.
         now_local = dt.datetime.now(tz=LOCAL_TZ)
-        one_hour_ago = now_local - dt.timedelta(hours=1)
-        had_error_last_hour = False
-        # Total errored result rows in the last hour for this test (across
+        one_day_ago = now_local - dt.timedelta(hours=24)
+        had_error_last_day = False
+        # Total errored result rows in the last day for this test (across
         # every agent/round). Surfaced on the dashboard as
-        # "Total Errors in last hour".
-        errors_last_hour = 0
+        # "Total Errors in last day".
+        errors_last_day = 0
 
         for r in data.get("results", []) or []:
             local_dt = _parse_start(r.get("startTime"))
@@ -330,9 +330,9 @@ def aggregate(cache_dir: str, blocks: int = 32,
                         tx_err_tests[label].add(test_id)
                     if (latest_error_dt is None) or (local_dt > latest_error_dt):
                         latest_error_dt = local_dt
-                    if local_dt >= one_hour_ago:
-                        had_error_last_hour = True
-                        errors_last_hour += 1
+                    if local_dt >= one_day_ago:
+                        had_error_last_day = True
+                        errors_last_day += 1
 
             elif ttype == "page-load":
                 plt = r.get("pageLoadTime")
@@ -349,9 +349,9 @@ def aggregate(cache_dir: str, blocks: int = 32,
                         pl_missing_tests[label].add(test_id)
                     if (latest_error_dt is None) or (local_dt > latest_error_dt):
                         latest_error_dt = local_dt
-                    if local_dt >= one_hour_ago:
-                        had_error_last_hour = True
-                        errors_last_hour += 1
+                    if local_dt >= one_day_ago:
+                        had_error_last_day = True
+                        errors_last_day += 1
 
         # Build per-test series for the table charts.
         availability = []
@@ -380,8 +380,8 @@ def aggregate(cache_dir: str, blocks: int = 32,
         latest_avg = avg_time[latest_idx]
 
         # ``in_error_now`` — new semantics (per change-request):
-        # the test had at least one error in any block within the last hour.
-        in_error_now = had_error_last_hour
+        # the test had at least one error in any block within the last day.
+        in_error_now = had_error_last_day
 
         # ``data_collection_problem`` — the cache has *no* round newer than
         # one hour ago. Tests with no data at all also qualify.
@@ -404,6 +404,22 @@ def aggregate(cache_dir: str, blocks: int = 32,
             if last_data_age_seconds is not None else "—"
         )
 
+        # Test Health — the percentage of rounds within the user-selected
+        # time range where the test was NOT outstanding. For tx tests a
+        # round counts as healthy when ``errorType`` is absent; for pl
+        # tests a round counts as healthy when ``pageLoadTime`` is present.
+        # Both definitions reduce to: healthy_rounds = total - errored.
+        range_total = sum(per_block_total.get(l, 0) for l in block_labels)
+        range_errors = sum(per_block_err_count.get(l, 0) for l in block_labels)
+        if range_total > 0:
+            health_pct = max(
+                0.0,
+                min(100.0, (range_total - range_errors) * 100.0 / range_total),
+            )
+            test_health = round(health_pct, 1)
+        else:
+            test_health = None
+
         entry = {
             "meta": meta,
             "availability": availability,
@@ -414,7 +430,10 @@ def aggregate(cache_dir: str, blocks: int = 32,
             "last_data_age": last_data_age_human,
             "latest_avg": latest_avg,
             "time_with_error": time_with_error,
-            "errors_last_hour": errors_last_hour,
+            "errors_last_day": errors_last_day,
+            "test_health": test_health,
+            "rounds_in_range": range_total,
+            "errors_in_range": range_errors,
         }
         if ttype == "web-transactions":
             tx_series[test_id] = entry

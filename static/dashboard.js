@@ -17,6 +17,9 @@ const COLORS = {
 
 const charts = {};      // org-level widgets
 const rowCharts = {};   // per-test row charts (re-created on each refresh)
+// Cache of last data rendered per table container — used by the
+// "Export to Excel" button on each card.
+const lastTableData = {};
 
 function _readIntFrom(id, fallback) {
   const el = document.getElementById(id);
@@ -213,6 +216,35 @@ function renderTable(containerId, tests, labels, mode) {
       rightLabel = "Latest Avg";
       rightValue = `${valText} &nbsp; ${pill}`;
     }
+    // "Test Health" cell — % of rounds in the user-selected time range
+    // where the test was NOT outstanding. Only shown on outstanding
+    // tables (availability mode).
+    let healthCell = "";
+    let chartColspan = 4;
+    if (mode === "availability") {
+      const hv = t.test_health;
+      let healthText, healthClass;
+      if (typeof hv !== "number") {
+        healthText = "—";
+        healthClass = "";
+      } else {
+        healthText = `${hv.toFixed(1)}%`;
+        if (hv >= 95) healthClass = "health-ok";
+        else if (hv >= 80) healthClass = "health-warn";
+        else healthClass = "health-bad";
+      }
+      const rounds = (typeof t.rounds_in_range === "number")
+        ? t.rounds_in_range : 0;
+      const errs = (typeof t.errors_in_range === "number")
+        ? t.errors_in_range : 0;
+      const title = `Healthy rounds ${rounds - errs} of ${rounds} in selected range`;
+      healthCell = `
+          <td style="width:12%">
+            <span class="label">Test Health</span>
+            <span class="${healthClass}" title="${escapeHtml(title)}">${healthText}</span>
+          </td>`;
+      chartColspan = 5;
+    }
     return `
       <table class="test-table">
         <tr class="header-row">
@@ -222,25 +254,25 @@ function renderTable(containerId, tests, labels, mode) {
                     data-test-name="${safeName}"
                     title="Ignore this test from all metrics">Ignore</button>
           </td>
-          <td style="width:22%">
+          <td style="width:${mode === "availability" ? "18" : "22"}%">
             <span class="label">Account Group</span>
             ${escapeHtml(m.accountGroupName || "—")}
           </td>
-          <td style="width:42%">
+          <td style="width:${mode === "availability" ? "36" : "42"}%">
             <span class="label">Test Name</span>
             <a href="${testLink(m.testId)}" target="_blank" rel="noopener">${safeName}</a>
           </td>
-          <td style="width:14%">
+          <td style="width:12%">
             <span class="label">Test Interval</span>
             ${escapeHtml(intervalText)}
-          </td>
-          <td style="width:22%">
+          </td>${healthCell}
+          <td style="width:${mode === "availability" ? "22" : "22"}%">
             <span class="label">${rightLabel}</span>
             ${rightValue}
           </td>
         </tr>
         <tr class="chart-row">
-          <td colspan="4"><canvas id="${cid}"></canvas></td>
+          <td colspan="${chartColspan}"><canvas id="${cid}"></canvas></td>
         </tr>
       </table>`;
   }).join("");
@@ -265,7 +297,144 @@ function renderTable(containerId, tests, labels, mode) {
   });
 
   bindIgnoreButtons(container);
+  lastTableData[containerId] = { tests, labels, mode };
 }
+
+// ---------------------------------------------------------------------------
+// Export to Excel — builds an HTML-formatted .xls file that Excel opens
+// natively. Hyperlinks on the Test Name cell are preserved.
+// ---------------------------------------------------------------------------
+function _excelEscape(s) {
+  return String(s == null ? "" : s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function exportTableToExcel(containerId) {
+  const cached = lastTableData[containerId];
+  if (!cached || !cached.tests || cached.tests.length === 0) {
+    window.alert("Nothing to export — this table has no rows.");
+    return;
+  }
+  const { tests, mode } = cached;
+
+  // Pick column set per table mode.
+  let headers, rowFn;
+  if (mode === "availability") {
+    headers = [
+      "Account Group", "Test Name", "Test ID", "Test Link",
+      "Test Interval", "Test Health (%)",
+      "Rounds In Range", "Errors In Range",
+      "Total Errors In Last Hour", "In Error Now",
+    ];
+    rowFn = (t) => {
+      const m = t.meta || {};
+      const link = m.testId ? testLink(m.testId) : "";
+      const linkedName = link
+        ? `<a href="${_excelEscape(link)}">${_excelEscape(m.testName || m.testId || "")}</a>`
+        : _excelEscape(m.testName || m.testId || "");
+      return [
+        _excelEscape(m.accountGroupName || ""),
+        linkedName,
+        _excelEscape(m.testId || ""),
+        _excelEscape(link),
+        _excelEscape(formatInterval(m.interval)),
+        (typeof t.test_health === "number") ? t.test_health.toFixed(1) : "",
+        (typeof t.rounds_in_range === "number") ? t.rounds_in_range : "",
+        (typeof t.errors_in_range === "number") ? t.errors_in_range : "",
+        (typeof t.errors_last_hour === "number") ? t.errors_last_hour : "",
+        t.in_error_now ? "Yes" : "No",
+      ];
+    };
+  } else if (mode === "no-data") {
+    headers = [
+      "Account Group", "Test Name", "Test ID", "Test Link",
+      "Test Interval", "Last Data Age", "Last Data Age (seconds)",
+    ];
+    rowFn = (t) => {
+      const m = t.meta || {};
+      const link = m.testId ? testLink(m.testId) : "";
+      const linkedName = link
+        ? `<a href="${_excelEscape(link)}">${_excelEscape(m.testName || m.testId || "")}</a>`
+        : _excelEscape(m.testName || m.testId || "");
+      return [
+        _excelEscape(m.accountGroupName || ""),
+        linkedName,
+        _excelEscape(m.testId || ""),
+        _excelEscape(link),
+        _excelEscape(formatInterval(m.interval)),
+        _excelEscape(t.last_data_age || ""),
+        (typeof t.last_data_age_seconds === "number")
+          ? Math.round(t.last_data_age_seconds) : "",
+      ];
+    };
+  } else {
+    // "time" mode — Top 5 tables
+    headers = [
+      "Account Group", "Test Name", "Test ID", "Test Link",
+      "Test Interval", "Latest Avg (s)",
+    ];
+    rowFn = (t) => {
+      const m = t.meta || {};
+      const link = m.testId ? testLink(m.testId) : "";
+      const linkedName = link
+        ? `<a href="${_excelEscape(link)}">${_excelEscape(m.testName || m.testId || "")}</a>`
+        : _excelEscape(m.testName || m.testId || "");
+      return [
+        _excelEscape(m.accountGroupName || ""),
+        linkedName,
+        _excelEscape(m.testId || ""),
+        _excelEscape(link),
+        _excelEscape(formatInterval(m.interval)),
+        (typeof t.latest_avg === "number") ? t.latest_avg.toFixed(3) : "",
+      ];
+    };
+  }
+
+  const thead = `<tr>${headers.map((h) => `<th>${_excelEscape(h)}</th>`).join("")}</tr>`;
+  const tbody = tests.map((t) => {
+    const cells = rowFn(t);
+    return `<tr>${cells.map((c) => `<td>${c}</td>`).join("")}</tr>`;
+  }).join("");
+
+  const titleEl = document.querySelector(
+    `[data-export-target="${containerId}"]`
+  );
+  const card = titleEl ? titleEl.closest(".card") : null;
+  const sheetTitle = (card && card.querySelector("h2"))
+    ? card.querySelector("h2").textContent.trim()
+    : containerId;
+
+  const html =
+    `<html xmlns:o="urn:schemas-microsoft-com:office:office" ` +
+    `xmlns:x="urn:schemas-microsoft-com:office:excel" ` +
+    `xmlns="http://www.w3.org/TR/REC-html40">` +
+    `<head><meta charset="utf-8"></head><body>` +
+    `<table border="1"><thead>${thead}</thead><tbody>${tbody}</tbody></table>` +
+    `</body></html>`;
+
+  const blob = new Blob(["\ufeff", html], {
+    type: "application/vnd.ms-excel;charset=utf-8",
+  });
+  const url = URL.createObjectURL(blob);
+  const ts = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+  const safeTitle = sheetTitle.replace(/[^\w\-]+/g, "_").slice(0, 60);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${safeTitle}_${ts}.xls`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// Delegated click handler — works even when buttons existed at page load.
+document.addEventListener("click", (e) => {
+  const btn = e.target.closest(".btn-export[data-export-target]");
+  if (!btn) return;
+  exportTableToExcel(btn.dataset.exportTarget);
+});
 
 // ---------------------------------------------------------------------------
 // Per-row Ignore button (with confirmation)
