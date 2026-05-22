@@ -47,11 +47,10 @@ The whole thing runs locally on your laptop, talks only to
   total cycle duration in seconds (or `Mm Ss` past 1 minute).
 
 ### Outstanding-test detection
-- **Web-Transactions:** any test whose latest round in the most recent 15-min
-  block has `errorType`.
-- **Page-Load:** any test whose latest round in the most recent 15-min block
-  is missing the `pageLoadTime` property (i.e. the page didn't finish
-  loading).
+- **Web-Transactions:** any test that has `errorType` property at any test result round during
+  the last 24 hours.
+- **Page-Load:** any test that is missing the `pageLoadTime` property (i.e. the page didn't
+  finish loading) at any test result round during the last 24 hours.
 - Plus the **Top 5** highest `transactionTime` and highest `pageLoadTime`
   tests, even when those tests are not technically "in error".
 
@@ -64,9 +63,9 @@ The whole thing runs locally on your laptop, talks only to
   3. Page-Load completion problems
   4. Page-Load time (per-block average, seconds)
 - **Four tables**, each row = one test:
-  1. Outstanding Transaction Tests — Errors (availability timeline 0/100%)
+  1. Outstanding Transaction Tests — Errors (availability timeline 0/100%) - Test Health Column (Number of rounds without errors)
   2. Top 5 Transaction Tests — Highest `transactionTime`
-  3. Outstanding Page-Load Tests — Missing `pageLoadTime`
+  3. Outstanding Page-Load Tests — Missing `pageLoadTime` - Test Health Column (Number of rounds without errors)
   4. Top 5 Page-Load Tests — Highest `pageLoadTime`
 - **Ignored Tests** section at the bottom with Account Group, Test Name and
   Test Type. Each row has its own re-include checkbox; the **Re-Include**.
